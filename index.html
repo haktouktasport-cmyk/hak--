@@ -1009,18 +1009,18 @@
           <label>ຕໍາແໜ່ງທີ່ສະໝັກ <span class="req">*</span></label>
           <select id="applyPosition">
             <option value="">-- ເລືອກຕໍາແໜ່ງ --</option>
-            <option>1. ພະນັກງານ HR </option>
-            <option>2. ພະນັກງານການບັນຊີ </option>
-            <option>3. ຫົວໜ້າກຸ່ມ </option>
-            <option>4. ພະນັກງານ Sale </option>
-            <option>5. ພະນັກງານຂາຍ Online </option>
-            <option>6. ພະນັກງານຂາຍໜ້າຮ້ານ </option>
-            <option>7. ພະນັກງານຄັງສິນຄ້າ </option>
+            <option>1. ພະນັກງານ HR</option>
+            <option>2. ພະນັກງານການບັນຊີ</option>
+            <option>3. ຫົວໜ້າກຸ່ມ</option>
+            <option>4. ພະນັກງານ Sale</option>
+            <option>5. ພະນັກງານຂາຍ Online</option>
+            <option>6. ພະນັກງານຂາຍໜ້າຮ້ານ</option>
+            <option>7. ພະນັກງານຄັງສິນຄ້າ</option>
           </select>
         </div>
         <div class="field">
           <label>ເງິນເດືອນທີ່ຄາດຫວັງ (ກີບ) <span class="req">*</span></label>
-          <input type="text" id="expectedSalary" placeholder="ເຊັ່ນ: 5.000.000" oninput="formatSalary(this)" inputmode="numeric">
+          <input type="text" id="expectedSalary" placeholder="ເຊັ່ນ: 8.000.000" oninput="formatSalary(this)" inputmode="numeric">
           <span style="font-size:0.78rem; color:#888; margin-top:2px;" id="salaryDisplay"></span>
         </div>
         <div class="field">
@@ -1256,26 +1256,27 @@ async function submitForm() {
         const cf = new FormData();
         cf.append('file', blob, 'photo.jpg');
         cf.append('upload_preset', 'job_applicants');
-        cf.append('public_id', 'candidate_' + record.id);
 
         const res = await fetch('https://api.cloudinary.com/v1_1/dbae4njf0/image/upload', {
           method: 'POST', body: cf
         });
         const imgData = await res.json();
+        console.log('Cloudinary result:', imgData);
+
         if (imgData.secure_url) {
-          // Save Cloudinary URL to Sheet
-          const pf = new FormData();
-          pf.append('action', 'addPhoto');
-          pf.append('id', record.id);
-          pf.append('photo', imgData.secure_url);
-          await fetch(GS_URL, { method: 'POST', body: pf, mode: 'no-cors' });
+          // Save URL to Sheet via GET (avoids no-cors issue)
+          const photoUrl = encodeURIComponent(imgData.secure_url);
+          await fetch(`${GS_URL}?action=addPhoto&id=${record.id}&photo=${photoUrl}`, { method: 'GET' });
 
           record.photo = imgData.secure_url;
           const idx = candidates.findIndex(c => c.id === record.id);
           if (idx >= 0) candidates[idx].photo = imgData.secure_url;
           localStorage.setItem(CANDIDATES_KEY, JSON.stringify(candidates));
+          console.log('Photo saved:', imgData.secure_url);
+        } else {
+          console.log('Cloudinary error:', imgData);
         }
-      } catch(pe) { console.log('Photo upload error:', pe); }
+      } catch(pe) { console.error('Photo upload error:', pe); }
     }
   } catch(e) { console.log('GS send error:', e); }
 
