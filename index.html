@@ -1009,9 +1009,9 @@
           <label>ຕໍາແໜ່ງທີ່ສະໝັກ <span class="req">*</span></label>
           <select id="applyPosition">
             <option value="">-- ເລືອກຕໍາແໜ່ງ --</option>
-            <option>1. ພະນັກງານ HR</option>
-            <option>2. ພະນັກງານການບັນຊີ</option>
-            <option>3. ຫົວໜ້າກຸ່ມ</option>
+            <option>1. ພະນັກງານ HR </option>
+            <option>2. ພະນັກງານການບັນຊີ </option>
+            <option>3. ຫົວໜ້າກຸ່ມ </option>
             <option>4. ພະນັກງານ Sale </option>
             <option>5. ພະນັກງານຂາຍ Online </option>
             <option>6. ພະນັກງານຂາຍໜ້າຮ້ານ </option>
@@ -1020,7 +1020,7 @@
         </div>
         <div class="field">
           <label>ເງິນເດືອນທີ່ຄາດຫວັງ (ກີບ) <span class="req">*</span></label>
-          <input type="text" id="expectedSalary" placeholder="ເຊັ່ນ: 5 .000.000" oninput="formatSalary(this)" inputmode="numeric">
+          <input type="text" id="expectedSalary" placeholder="ເຊັ່ນ: 5.000.000" oninput="formatSalary(this)" inputmode="numeric">
           <span style="font-size:0.78rem; color:#888; margin-top:2px;" id="salaryDisplay"></span>
         </div>
         <div class="field">
@@ -1235,30 +1235,41 @@ async function submitForm() {
     const sendData = { ...record };
     delete sendData.photo;
 
-    // Use POST via form trick to avoid CORS issues with Google Apps Script
+    // Send form data via POST
     const formData = new FormData();
     formData.append('action', 'add');
     formData.append('data', JSON.stringify(sendData));
-
     await fetch(GS_URL, { method: 'POST', body: formData, mode: 'no-cors' });
 
-    // Upload photo to Cloudinary then save URL to Sheet
+    // Upload photo to Cloudinary
     if (record.photo) {
       try {
+        // Convert base64 to Blob
+        const base64 = record.photo;
+        const mime = base64.match(/data:(.*?);base64,/)?.[1] || 'image/jpeg';
+        const byteStr = atob(base64.split(',')[1]);
+        const ab = new ArrayBuffer(byteStr.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteStr.length; i++) ia[i] = byteStr.charCodeAt(i);
+        const blob = new Blob([ab], { type: mime });
+
         const cf = new FormData();
-        cf.append('file', record.photo);
+        cf.append('file', blob, 'photo.jpg');
         cf.append('upload_preset', 'job_applicants');
         cf.append('public_id', 'candidate_' + record.id);
+
         const res = await fetch('https://api.cloudinary.com/v1_1/dbae4njf0/image/upload', {
           method: 'POST', body: cf
         });
         const imgData = await res.json();
         if (imgData.secure_url) {
+          // Save Cloudinary URL to Sheet
           const pf = new FormData();
           pf.append('action', 'addPhoto');
           pf.append('id', record.id);
           pf.append('photo', imgData.secure_url);
           await fetch(GS_URL, { method: 'POST', body: pf, mode: 'no-cors' });
+
           record.photo = imgData.secure_url;
           const idx = candidates.findIndex(c => c.id === record.id);
           if (idx >= 0) candidates[idx].photo = imgData.secure_url;
