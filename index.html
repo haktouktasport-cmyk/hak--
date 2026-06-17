@@ -1234,26 +1234,31 @@ async function submitForm() {
   try {
     const sendData = { ...record };
     delete sendData.photo;
-    const params = new URLSearchParams({ action: 'add', data: JSON.stringify(sendData) });
-    await fetch(GS_URL + '?' + params.toString(), { method: 'GET' });
 
-    // Upload photo to Cloudinary
+    // Use POST via form trick to avoid CORS issues with Google Apps Script
+    const formData = new FormData();
+    formData.append('action', 'add');
+    formData.append('data', JSON.stringify(sendData));
+
+    await fetch(GS_URL, { method: 'POST', body: formData, mode: 'no-cors' });
+
+    // Upload photo to Cloudinary then save URL to Sheet
     if (record.photo) {
       try {
-        const formData = new FormData();
-        formData.append('file', record.photo);
-        formData.append('upload_preset', 'job_applicants');
-        formData.append('public_id', 'candidate_' + record.id);
+        const cf = new FormData();
+        cf.append('file', record.photo);
+        cf.append('upload_preset', 'job_applicants');
+        cf.append('public_id', 'candidate_' + record.id);
         const res = await fetch('https://api.cloudinary.com/v1_1/dbae4njf0/image/upload', {
-          method: 'POST',
-          body: formData
+          method: 'POST', body: cf
         });
         const imgData = await res.json();
         if (imgData.secure_url) {
-          // Save Cloudinary URL to Sheet
-          const p = new URLSearchParams({ action: 'addPhoto', id: record.id, photo: imgData.secure_url });
-          await fetch(GS_URL + '?' + p.toString(), { method: 'GET' });
-          // Update local record
+          const pf = new FormData();
+          pf.append('action', 'addPhoto');
+          pf.append('id', record.id);
+          pf.append('photo', imgData.secure_url);
+          await fetch(GS_URL, { method: 'POST', body: pf, mode: 'no-cors' });
           record.photo = imgData.secure_url;
           const idx = candidates.findIndex(c => c.id === record.id);
           if (idx >= 0) candidates[idx].photo = imgData.secure_url;
