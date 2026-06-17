@@ -1126,21 +1126,32 @@ function formatSalary(input) {
 }
 
 // ===== FETCH CANDIDATES FROM GOOGLE SHEET =====
-async function fetchFromGoogleSheet() {
-  try {
-    const res = await fetch(GS_URL + '?action=get', { method: 'GET' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (Array.isArray(data) && data.length > 0) {
-      // Sheet is source of truth including photos
-      candidates = data;
-      localStorage.setItem(CANDIDATES_KEY, JSON.stringify(candidates));
-      return true;
-    }
-  } catch(e) {
-    console.warn('Could not fetch from Google Sheet:', e);
-  }
-  return false;
+function fetchFromGoogleSheet() {
+  return new Promise((resolve) => {
+    const callbackName = 'gsCallback_' + Date.now();
+    const script = document.createElement('script');
+
+    window[callbackName] = function(data) {
+      delete window[callbackName];
+      document.body.removeChild(script);
+      try {
+        if (Array.isArray(data) && data.length > 0) {
+          candidates = data;
+          localStorage.setItem(CANDIDATES_KEY, JSON.stringify(candidates));
+          resolve(true);
+        } else {
+          resolve(false);
+        }
+      } catch(e) { resolve(false); }
+    };
+
+    script.src = GS_URL + '?action=get&callback=' + callbackName;
+    script.onerror = () => { delete window[callbackName]; resolve(false); };
+    document.body.appendChild(script);
+
+    // Timeout 10s
+    setTimeout(() => { if(window[callbackName]) { delete window[callbackName]; resolve(false); } }, 10000);
+  });
 }
 
 // ===== PHOTO PREVIEW =====
@@ -1236,16 +1247,20 @@ async function submitForm() {
     const sendData = { ...record };
     delete sendData.photo;
 
-    // Send form data via POST
-    const formData = new FormData();
-    formData.append('action', 'add');
-    formData.append('data', JSON.stringify(sendData));
-    await fetch(GS_URL, { method: 'POST', body: formData, mode: 'no-cors' });
+    // Send via JSONP to bypass CSP
+    await new Promise((resolve) => {
+      const cb = 'addCb_' + Date.now();
+      const s = document.createElement('script');
+      window[cb] = () => { delete window[cb]; document.body.removeChild(s); resolve(); };
+      s.onerror = () => { delete window[cb]; resolve(); };
+      s.src = GS_URL + '?action=add&callback=' + cb + '&data=' + encodeURIComponent(JSON.stringify(sendData));
+      document.body.appendChild(s);
+      setTimeout(() => { if(window[cb]) { delete window[cb]; resolve(); } }, 10000);
+    });
 
     // Upload photo to Cloudinary
     if (record.photo) {
       try {
-        // Convert base64 to Blob
         const base64 = record.photo;
         const mime = base64.match(/data:(.*?);base64,/)?.[1] || 'image/jpeg';
         const byteStr = atob(base64.split(',')[1]);
@@ -1262,20 +1277,21 @@ async function submitForm() {
           method: 'POST', body: cf
         });
         const imgData = await res.json();
-        console.log('Cloudinary result:', imgData);
-
         if (imgData.secure_url) {
-          // Save URL to Sheet via GET (avoids no-cors issue)
-          const photoUrl = encodeURIComponent(imgData.secure_url);
-          await fetch(`${GS_URL}?action=addPhoto&id=${record.id}&photo=${photoUrl}`, { method: 'GET' });
-
+          // Save URL to Sheet via JSONP
+          await new Promise((resolve) => {
+            const cb = 'photoCb_' + Date.now();
+            const s = document.createElement('script');
+            window[cb] = () => { delete window[cb]; document.body.removeChild(s); resolve(); };
+            s.onerror = () => { delete window[cb]; resolve(); };
+            s.src = GS_URL + '?action=addPhoto&callback=' + cb + '&id=' + record.id + '&photo=' + encodeURIComponent(imgData.secure_url);
+            document.body.appendChild(s);
+            setTimeout(() => { if(window[cb]) { delete window[cb]; resolve(); } }, 10000);
+          });
           record.photo = imgData.secure_url;
           const idx = candidates.findIndex(c => c.id === record.id);
           if (idx >= 0) candidates[idx].photo = imgData.secure_url;
           localStorage.setItem(CANDIDATES_KEY, JSON.stringify(candidates));
-          console.log('Photo saved:', imgData.secure_url);
-        } else {
-          console.log('Cloudinary error:', imgData);
         }
       } catch(pe) { console.error('Photo upload error:', pe); }
     }
@@ -1557,11 +1573,18 @@ async function saveInterview(id) {
   c.startDate = c.status === 'pass' ? document.getElementById(`startDateInput_${id}`).value : '';
   localStorage.setItem(CANDIDATES_KEY, JSON.stringify(candidates));
 
-  // Sync update to Google Sheet
+  // Sync update to Google Sheet via JSONP
   try {
     const updateData = { id: c.id, status: c.status, interviewScore: c.interviewScore, startDate: c.startDate };
-    const params = new URLSearchParams({ action: 'update', data: JSON.stringify(updateData) });
-    await fetch(GS_URL + '?' + params.toString(), { method: 'GET' });
+    await new Promise((resolve) => {
+      const cb = 'updateCb_' + Date.now();
+      const s = document.createElement('script');
+      window[cb] = () => { delete window[cb]; document.body.removeChild(s); resolve(); };
+      s.onerror = () => { delete window[cb]; resolve(); };
+      s.src = GS_URL + '?action=update&callback=' + cb + '&data=' + encodeURIComponent(JSON.stringify(updateData));
+      document.body.appendChild(s);
+      setTimeout(() => { if(window[cb]) { delete window[cb]; resolve(); } }, 10000);
+    });
   } catch(e) { console.log('GS update error:', e); }
 
   closeDetail();
